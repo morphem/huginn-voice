@@ -4,39 +4,44 @@ import type { EngineInterface, PluginOptions, Register } from 'claude-code'
 import type { Listening } from '../types'
 
 /**
- * `/huginn` — dictate into the prompt box through the Huginn ear.
+ * `/huginn` — dictate into the prompt box; Huginn transcribes on its own GPU while you speak.
  *
- *   /huginn          start listening; each phrase lands in the box about a second after you pause
- *   Enter            sends the prompt AND stops listening; the phrase still in flight is added first
- *   [ Stop ]         the band above the prompt: stop without sending (click it, or ctrl+x tab, then s)
+ *   /huginn          start listening
+ *   …speak…          the band above the prompt previews the phrase you are saying (partial);
+ *                    each phrase lands in the box at a pause (phrase); about every 20 s of audio
+ *                    the phrases are replaced by a final text decoded like a recorded thought (final)
+ *   Enter            finalizes what is still open, puts it in the prompt, sends, and stops
+ *   [ Stop ]         the band: finalize and stop without sending (click, or ctrl+x tab, then Enter)
  *   (spoken stop)    a placeholder, OFF: see VOICE_STOP below
- *   /huginn          (only while the box is empty) the same again
  *
- * Stopping must never need the prompt box: once the box holds dictated text, a typed `/huginn`
- * becomes part of that text and is sent as a prompt.
+ * A final replaces its phrases only where they still stand in the box as they were typed: if you
+ * edited them by hand, your edit wins and the final is dropped.
  *
- * The audio goes to the Huginn server named in the options, never to a cloud service.
- * `bin/huginn-ear.py` does the work (ffmpeg → WebSocket → JSON lines); this module only starts it,
- * stops it with SIGINT (so it can flush the last phrase), and puts what it hears into the box.
+ * `bin/huginn-ear.py` does the work (ffmpeg → WebSocket /api/dictate → JSON lines); this module
+ * starts it, stops it with SIGINT (the client then asks the server to finalize), and edits the box.
  */
 
 type Line =
   | { type: 'pid'; pid: number }
   | { type: 'ready'; model?: string; device?: string }
-  | { type: 'heard'; text: string; decode_ms?: number }
+  | { type: 'partial'; text: string }
+  | { type: 'phrase'; id: number; chunk: number; text: string }
+  | { type: 'final'; chunk: number; ids: number[]; text: string }
   | { type: 'error'; message: string }
   | { type: 'done' }
 
 type Session = {
   pid?: number
   ended: Promise<void>
-  /** Set while a submit is waiting for the last phrase: phrases go here instead of into the box. */
-  late?: string[]
+  /** Phrase texts by id: what a final has to find in the box to replace. */
+  phrases: Map<number, string>
+  /** Set while a submit is waiting: phrases and finals go here instead of into the box. */
+  late?: { phrases: string[]; finals: { old: string; text: string }[] }
   /** A stop arrived before the child reported its pid: signal it the moment the pid arrives. */
   stopRequested?: boolean
 }
 
-const STOP_WAIT_MS = 5000
+const STOP_WAIT_MS = 15000
 const DEFAULT_URL = 'https://huginn.prawdzik.eu'
 const DEFAULT_MIC = 'RDPSource'
 
@@ -54,14 +59,14 @@ const STOP_WORDS = new Set(['stop', 'stop huginn', 'huginn stop', 'koniec', 'kon
 
 const listening = atom({ plugin: 'huginn-voice', key: 'listening' } as const, { state: 'off' } as Listening)
 
-/** The one running ear client of this session, if any. */
+/** The one running client of this session, if any. */
 let live: Session | undefined
 
 export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'huginn',
-      description: 'Dictate into the prompt (Huginn ear, your GPU). Stop without sending: [Stop] above the prompt; Enter sends and stops.',
+      description: 'Dictate into the prompt (Huginn, your GPU). Stop without sending: [Stop] above the prompt; Enter sends and stops.',
       immediate: true,
     })
     await setListening($, { state: 'off' })
@@ -78,34 +83,40 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const session = live
     if (!session || e.command) return next(e)
-    let tail = ''
+    let text = e.text
     try {
-      session.late = []
+      session.late = { phrases: [], finals: [] }
       await setStopping($)
       await stop($, session)
-      tail = session.late.join(' ').trim()
+      text = join(text, session.late.phrases.join(' ').trim())
+      for (const f of session.late.finals) text = replaceLast(text, f.old, f.text) ?? text
     } catch {
       /* never let the ear block a prompt: send what was typed */
     }
-    return next(tail ? { ...e, text: join(e.text, tail) } : e)
+    return next(text === e.text ? e : { ...e, text })
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const now = await read($, listening)
     if (now.state === 'off' || e.props.hasSurvey) return next(e)
     const { Box, Button, Text } = $.ui.resolve(e)
-    const label =
+    const head =
       now.state === 'connecting' ? '◌ Huginn: connecting…'
-      : now.state === 'stopping' ? '◌ Huginn: finishing the last phrase…'
+      : now.state === 'stopping' ? '◌ Huginn: finishing…'
       : `● Huginn listening${now.detail ? ` (${now.detail})` : ''} `
     return (
-      <Box>
-        <Text color={now.state === 'listening' ? 'success' : undefined} dimColor={now.state !== 'listening'}>
-          {label}
-        </Text>
-        {now.state !== 'stopping' && (
-          <Button key="stop" label="Stop" hotkey="s" onPress={() => void halt($)} />
-        )}
+      <Box flexDirection="column">
+        <Box>
+          <Text color={now.state === 'listening' ? 'success' : undefined} dimColor={now.state !== 'listening'}>
+            {head}
+          </Text>
+          {now.state !== 'stopping' && <Button key="stop" label="Stop" hotkey="s" onPress={() => void halt($)} />}
+        </Box>
+        {now.state === 'listening' && now.preview ? (
+          <Text dimColor italic>
+            {`  … ${now.preview}`}
+          </Text>
+        ) : null}
       </Box>
     )
   })
@@ -123,7 +134,11 @@ async function setListening($: EngineInterface, value: Listening): Promise<void>
 }
 
 async function setStopping($: EngineInterface): Promise<void> {
-  await update($, listening, (s): Listening => ({ ...s, state: 'stopping' }))
+  await update($, listening, (s): Listening => ({ ...s, state: 'stopping', preview: undefined }))
+}
+
+async function setPreview($: EngineInterface, preview: string | undefined): Promise<void> {
+  await update($, listening, (s): Listening => (s.state === 'listening' ? { ...s, preview } : s))
 }
 
 function start($: EngineInterface, options: PluginOptions): Session {
@@ -136,7 +151,7 @@ function start($: EngineInterface, options: PluginOptions): Session {
   const python = str(options.python) || 'python3'
 
   let resolveEnded: () => void = () => {}
-  const session: Session = { ended: new Promise<void>(r => (resolveEnded = r)) }
+  const session: Session = { ended: new Promise<void>(r => (resolveEnded = r)), phrases: new Map() }
 
   void (async () => {
     let buffered = ''
@@ -165,15 +180,27 @@ function start($: EngineInterface, options: PluginOptions): Session {
             await setListening($, { state: 'listening', detail: [line.model, line.device].filter(Boolean).join(' · ') })
           } else if (line.type === 'error') {
             failure = line.message
-          } else if (line.type === 'heard' && line.text) {
-            if (!session.stopRequested && isStopWord(line.text)) void halt($)
-            else if (session.late) session.late.push(line.text)
-            else if (!isStopWord(line.text)) await append($, line.text)
+          } else if (line.type === 'partial') {
+            if (!session.stopRequested) await setPreview($, line.text)
+          } else if (line.type === 'phrase' && line.text) {
+            await setPreview($, undefined)
+            if (!session.stopRequested && isStopWord(line.text)) {
+              void halt($)
+              continue
+            }
+            session.phrases.set(line.id, line.text)
+            if (session.late) session.late.phrases.push(line.text)
+            else await append($, line.text)
+          } else if (line.type === 'final' && line.text) {
+            const old = line.ids.map(id => session.phrases.get(id) ?? '').filter(Boolean).join(' ')
+            if (!old || old === line.text) continue
+            if (session.late) session.late.finals.push({ old, text: line.text })
+            else await replaceInBox($, old, line.text)
           }
         }
       }
     } catch (err) {
-      failure = failure || `could not start the ear client: ${String(err)}`
+      failure = failure || `could not start the dictation client: ${String(err)}`
     } finally {
       if (failure) $.ui.toast(`Huginn: ${failure}`)
       if (live === session) live = undefined
@@ -204,11 +231,24 @@ async function append($: EngineInterface, text: string): Promise<void> {
   await $.prompt.fill({ text: box.text && !/\s$/.test(box.text) ? ` ${text}` : text, mode: 'append' })
 }
 
+/** Replace the phrases a final covers, only where they still stand in the box unchanged. */
+async function replaceInBox($: EngineInterface, old: string, text: string): Promise<void> {
+  const box = await $.prompt.read()
+  const next = replaceLast(box.text, old, text)
+  if (next !== undefined) await $.prompt.fill({ text: next, mode: 'replace' })
+}
+
+export function replaceLast(hay: string, old: string, text: string): string | undefined {
+  const at = hay.lastIndexOf(old)
+  return at < 0 ? undefined : hay.slice(0, at) + text + hay.slice(at + old.length)
+}
+
 export function isStopWord(text: string): boolean {
   return VOICE_STOP && STOP_WORDS.has(text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim())
 }
 
 function join(a: string, b: string): string {
+  if (!b) return a
   return a && !/\s$/.test(a) ? `${a} ${b}` : a + b
 }
 

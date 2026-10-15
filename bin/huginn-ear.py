@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Stream the microphone to the Huginn ear and print what it hears, one JSON object per line.
+"""Stream the microphone to Huginn's dictation socket and print what it hears, one JSON line each.
 
-    ffmpeg (pulse, 16 kHz mono s16le)  →  wss://<huginn>/api/ear  (mode "dictate")
-                                       ←  {"type": "heard", "text": ...}  →  stdout
+    ffmpeg (pulse, 16 kHz mono s16le)  →  wss://<huginn>/api/dictate
+                                       ←  partial / phrase / final events  →  stdout
 
-The ear decodes each phrase on Huginn's own GPU about a second after you pause (300 ms of silence
-ends a phrase). Dictate mode creates no note and no job and calls no model except the decoder.
+Huginn decodes on its own GPU while you speak. It creates no note and no job and calls no model
+except the decoder. Stdout carries only JSON lines, so a caller can parse every line:
 
-Stdout carries only JSON lines, so a caller can parse every line:
+    {"type": "pid", "pid": 1234}                      first, so the caller can stop us with SIGINT
+    {"type": "ready", "model", "device", ...}         the server loaded the decoder; speak now
+    {"type": "partial", "text"}                       preview of the phrase being spoken (not kept)
+    {"type": "phrase", "id", "chunk", "text"}         a phrase ended: this text goes in the box
+    {"type": "final", "chunk", "ids", "text"}         ~20 s of audio decoded like a recorded thought:
+                                                      replaces the phrases listed in "ids"
+    {"type": "error", "message"}                      then exit 1
+    {"type": "done"}                                  then exit 0
 
-    {"type": "pid", "pid": 1234}                   first, so the caller can stop us with SIGINT
-    {"type": "ready", "model": ..., "device": ...} the server loaded the decoder; speak now
-    {"type": "heard", "text": ..., "decode_ms": ...}
-    {"type": "error", "message": ...}              then exit 1
-    {"type": "done"}                               then exit 0
-
-SIGINT or SIGTERM stops the recording cleanly: the microphone stops, one second of silence is sent
-so the ear ends the phrase you were speaking, and the script waits for that phrase before it exits.
+SIGINT or SIGTERM stops the recording cleanly: the microphone stops, the script asks the server to
+finalize what is still open (the last phrase and the last chunk), prints it, and exits.
 Stdlib only, so the file runs anywhere that has python3 and ffmpeg.
 """
 
@@ -36,8 +37,7 @@ import urllib.parse
 
 SAMPLE_RATE = 16000
 CHUNK_BYTES = SAMPLE_RATE * 2 // 10      # 100 ms of int16 mono
-FLUSH_SILENCE_S = 1.0                    # > MIN_SILENCE_MS + VAD_EVERY_MS on the server
-FLUSH_WAIT_S = 3.0                       # the last decode is ~0.4-0.8 s on the GPU
+FINALIZE_WAIT_S = 15.0                   # the open chunk (<30 s of audio) decodes in ~1-3 s on the GPU
 CONNECT_TIMEOUT_S = 10
 READY_TIMEOUT_S = 60                     # the first connection after a restart loads the model
 
@@ -67,7 +67,7 @@ class WebSocket:
         raw = socket.create_connection((host, port), timeout=CONNECT_TIMEOUT_S)
         self.sock = ssl.create_default_context().wrap_socket(raw, server_hostname=host) if secure else raw
         key = base64.b64encode(os.urandom(16)).decode()
-        path = (u.path.rstrip("/") or "") + "/api/ear"
+        path = (u.path.rstrip("/") or "") + "/api/dictate"
         req = (
             f"GET {path} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
             f"Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n"
@@ -186,13 +186,13 @@ def main(argv=None) -> int:
 
     try:
         ws = WebSocket(args.url)
-        ws.send(json.dumps({"type": "hello", "key": key, "mode": "dictate"}))
+        ws.send(json.dumps({"type": "hello", "key": key}))
     except Exception as exc:
         emit({"type": "error", "message": f"cannot reach the ear at {args.url}: {exc}"})
         return 1
 
     ready = threading.Event()
-    last_heard = [0.0]
+    finalized = threading.Event()
     failed = []
 
     def reader():
@@ -210,11 +210,11 @@ def main(argv=None) -> int:
                 if d.get("type") == "ready":
                     ready.set()
                     emit({"type": "ready", "model": d.get("model"), "device": d.get("device")})
-                elif d.get("type") == "heard":
-                    last_heard[0] = time.monotonic()
+                elif d.get("type") in ("partial", "phrase", "final"):
                     if (d.get("text") or "").strip():
-                        emit({"type": "heard", "text": d["text"].strip(),
-                              "decode_ms": d.get("decode_ms"), "speech_ms": d.get("speech_ms")})
+                        emit({k: d[k] for k in ("type", "id", "chunk", "ids", "text", "decode_ms") if k in d})
+                elif d.get("type") == "finalized":
+                    finalized.set()
                 elif d.get("type") == "error":
                     failed.append(d.get("message") or "the ear reported an error")
         except Exception as exc:
@@ -267,19 +267,12 @@ def main(argv=None) -> int:
         mic.kill()
 
     if not failed:
-        # End the phrase that was being spoken: silence closes it on the server.
-        stop_at = time.monotonic()
+        # Ask the server to decode what is still open; wait for it to say it is done.
         try:
-            silence = b"\x00" * CHUNK_BYTES
-            for _ in range(int(FLUSH_SILENCE_S * 10)):
-                ws.send(silence)
+            ws.send(json.dumps({"type": "finalize"}))
+            finalized.wait(FINALIZE_WAIT_S)
         except OSError:
             pass
-        deadline = stop_at + FLUSH_WAIT_S
-        while time.monotonic() < deadline:
-            if last_heard[0] > stop_at and time.monotonic() - last_heard[0] > 0.3:
-                break
-            time.sleep(0.05)
 
     ws.close()
     if failed:
