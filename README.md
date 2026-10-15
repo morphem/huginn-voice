@@ -6,11 +6,16 @@ pause. Each phrase lands in the prompt box, where you can edit it. Nothing goes 
 other cloud speech service, and this works with any model provider (for example GitHub Copilot).
 
 ```
-/huginn     start listening (status line: ● Huginn listening)
-…speak…     each phrase appears in the box after a short pause
-Enter       send the prompt AND stop; the phrase still in flight is added to the prompt first
-/huginn     (while listening) stop without sending; the last phrase lands in the box
+/huginn         start listening (the band above the prompt: ● Huginn listening … [ Stop ])
+…speak…         each phrase appears in the box after a short pause
+Enter           send the prompt AND stop; the phrase still in flight is added to the prompt first
+[ Stop ]        stop without sending: click it, or ctrl+x tab, then Enter (or s)
+„stop”          said on its own as one phrase: the same, hands-free; the word is not typed
 ```
+
+Stopping never needs the prompt box: once the box holds dictated text, a typed `/huginn` would
+become part of that text. Escape cannot stop listening: over text in the box it belongs to Claude
+Code, and a plugin does not receive it.
 
 Dictate mode creates **no note** in the mind, no job, and no model call except the decoder.
 
@@ -72,4 +77,5 @@ claude plugin test .          # tests/ear.test.ts fakes the client at process.sp
 
 - Text arrives per **phrase**, not word by word: the server sends a phrase after 300 ms of silence.
   Whisper sometimes ends a phrase with `...` where you only paused.
+- Recognised stop words: `stop`, `stop huginn`, `huginn stop`, `koniec`, `koniec nasłuchu`.
 - Stop uses `kill -INT`, so the plugin needs a POSIX host (Linux, WSL, macOS).

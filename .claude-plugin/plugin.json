@@ -1,10 +1,11 @@
 {
   "name": "huginn-voice",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Dictate into the Claude Code prompt box. Speech is transcribed by your own Huginn server (faster-whisper on its GPU), not by a cloud service.",
   "author": {
     "name": "Krzysztof Prawdzik"
   },
+  "types": "./types/index.d.ts",
   "userConfig": {
     "api_key": {
       "type": "string",

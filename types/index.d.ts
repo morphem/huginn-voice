@@ -1,0 +1,12 @@
+/** What the band above the prompt shows while the ear is on. */
+export type Listening = {
+  state: 'off' | 'connecting' | 'listening' | 'stopping'
+  /** The decoder, as the ear reported it (`large-v3 · cuda`). */
+  detail?: string
+}
+
+declare module 'claude-code' {
+  interface PluginState {
+    'huginn-voice': { listening: Listening }
+  }
+}

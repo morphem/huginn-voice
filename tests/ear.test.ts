@@ -77,3 +77,29 @@ test('/huginn again stops without sending; the last phrase still lands in the bo
   expect(stopped.text).toContain('stopped')
   expect(box).toBe('ostatnie słowa')
 })
+
+test('saying „stop” on its own stops listening and is not typed into the box', async ($, on) => {
+  let box = 'Popraw test'
+  const kills: string[][] = []
+  let killed: () => void = () => {}
+  const onKill = new Promise<void>(r => (killed = r))
+
+  const clock = quiet(on)
+  on('process.spawn', fakeEar(onKill, ['w module ear', 'Stop.'], ''))
+  on('process.run', async (_$, e) => {
+    kills.push([...e.argv])
+    killed()
+    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('prompt.read', async () => ({ value: { text: box, cursor: box.length } }))
+  on('prompt.fill', async (_$, e) => {
+    box = e.mode === 'append' ? box + e.text : e.text
+    return { isFilled: true, text: box, cursor: box.length }
+  })
+
+  await $.command.run({ command: 'huginn', args: '' })
+  await clock.settle()
+  await clock.advance(6000)
+  expect(kills).toEqual([['kill', '-INT', '4242']])
+  expect(box).toBe('Popraw test w module ear')
+})
