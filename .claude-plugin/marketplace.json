@@ -1,0 +1,14 @@
+{
+  "name": "huginn-voice",
+  "description": "Voice dictation for Claude Code, transcribed on your own Huginn server.",
+  "owner": {
+    "name": "Krzysztof Prawdzik"
+  },
+  "plugins": [
+    {
+      "name": "huginn-voice",
+      "source": "./",
+      "description": "Dictate into the Claude Code prompt box; speech is transcribed on your own Huginn server."
+    }
+  ]
+}

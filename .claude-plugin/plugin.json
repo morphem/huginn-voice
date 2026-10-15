@@ -1,0 +1,38 @@
+{
+  "name": "huginn-voice",
+  "version": "0.1.0",
+  "description": "Dictate into the Claude Code prompt box. Speech is transcribed by your own Huginn server (faster-whisper on its GPU), not by a cloud service.",
+  "author": {
+    "name": "Krzysztof Prawdzik"
+  },
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "Huginn API key",
+      "description": "A named Huginn user key. Empty: the HUGINN_API_KEY environment variable is used.",
+      "sensitive": true,
+      "required": false
+    },
+    "url": {
+      "type": "string",
+      "title": "Huginn URL",
+      "description": "The Huginn server that hosts the ear.",
+      "default": "https://huginn.prawdzik.eu",
+      "required": false
+    },
+    "mic": {
+      "type": "string",
+      "title": "Microphone (pulse source)",
+      "description": "PulseAudio source name. Under WSL2 (WSLg) the Windows microphone is RDPSource. List sources with: ffmpeg -sources pulse",
+      "default": "RDPSource",
+      "required": false
+    },
+    "python": {
+      "type": "string",
+      "title": "Python executable",
+      "description": "The interpreter that runs bin/huginn-ear.py (stdlib only).",
+      "default": "python3",
+      "required": false
+    }
+  }
+}
