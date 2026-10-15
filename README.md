@@ -30,10 +30,10 @@ From a clone or a local folder:
 /plugin install huginn-voice@huginn-voice
 ```
 
-From GitHub, once the folder is its own repository:
+From GitHub (private: the machine needs git access to morphem/huginn-voice, e.g. `gh auth login`):
 
 ```
-/plugin marketplace add <owner>/huginn-voice
+/plugin marketplace add morphem/huginn-voice
 /plugin install huginn-voice@huginn-voice
 ```
 
