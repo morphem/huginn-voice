@@ -50,7 +50,7 @@ function world(on: On, initial: string) {
 test('phrases land in the box; Enter sends with the finalized tail and stops', async ($, on) => {
   const clock = quiet(on)
   const { w, onKill } = world(on, 'Fix the bug')
-  on('process.spawn', fakeClient(onKill, [phrase(1, 'w pliku app.py')], [phrase(2, 'i dodaj test'), final([1, 2], 'w pliku app.py. I dodaj test.')]))
+  on('process.spawn', fakeClient(onKill, [phrase(1, 'w pliku app.py')], [final([1], 'w pliku app.py. I dodaj test.')]))
 
   await $.command.run({ command: 'huginn', args: '' })
   await clock.settle()
@@ -100,10 +100,10 @@ test('a final is dropped where the person edited its phrases by hand', async ($,
   expect(w.box).toBe('ONEKEY reloader')
 })
 
-test('[Stop] path: /huginn on an empty box stops without sending; the tail lands in the box', async ($, on) => {
+test('[Stop] before the first pause: the final carries words never shown and lands in the box', async ($, on) => {
   const clock = quiet(on)
   const { w, onKill } = world(on, '')
-  on('process.spawn', fakeClient(onKill, [], [phrase(1, 'ostatnie słowa'), final([1], 'Ostatnie słowa.')]))
+  on('process.spawn', fakeClient(onKill, [], [final([], 'Ostatnie słowa.')]))
 
   await $.command.run({ command: 'huginn', args: '' })
   await clock.settle()

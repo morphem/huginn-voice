@@ -1,22 +1,35 @@
 # huginn-voice — dictate into Claude Code with your own GPU
 
-`/huginn` streams the microphone to the **Huginn ear** (`/api/ear`, `mode: "dictate"`). The ear runs
-faster-whisper `large-v3` on Huginn's own GPU and sends back each phrase about one second after you
-pause. Each phrase lands in the prompt box, where you can edit it. Nothing goes to Anthropic or to any
-other cloud speech service, and this works with any model provider (for example GitHub Copilot).
+`/huginn` streams the microphone to your own Huginn server (`/api/dictate`, Huginn ≥ 1.146.0), which
+transcribes on its own GPU with faster-whisper `large-v3`. Nothing goes to Anthropic or to any other
+cloud speech service, and this works with any model provider (for example GitHub Copilot).
 
 ```
 /huginn         start listening (the band above the prompt: ● Huginn listening … [ Stop ])
-…speak…         each phrase appears in the box after a short pause
-Enter           send the prompt AND stop; the phrase still in flight is added to the prompt first
-[ Stop ]        stop without sending: click it, or ctrl+x tab, then Enter (or s)
+…speak…         each phrase appears in the box at a short pause; a long phrase is previewed
+                in grey under the band before its pause
+Enter           the final text replaces the phrases, then the prompt is sent and listening stops
+[ Stop ]        the same without sending: click it, or ctrl+x tab, then Enter (or s)
 ```
 
-Stopping never needs the prompt box: once the box holds dictated text, a typed `/huginn` would
-become part of that text. Escape cannot stop listening: over text in the box it belongs to Claude
-Code, and a plugin does not receive it.
+Two passes over the same audio:
 
-Dictate mode creates **no note** in the mind, no job, and no model call except the decoder.
+- **While you talk:** phrases (beam 5, the glossary, the text said before) land in the box. The text
+  does not change under your eyes.
+- **In the background:** about every 12 s of audio is decoded again the way Huginn decodes a recorded
+  thought (the capture beam, the glossary, the same decode settings). On stop or Enter only the last
+  chunk is still open, so the final text arrives about 1.5 s after you stop, and replaces the phrases
+  in one step.
+
+If you edit a dictated phrase by hand before stop, the final for that part is dropped and your edit
+stays. Dictation creates **no note** in the mind, no job, and no model call except the decoder.
+
+Stopping never needs the prompt box: once the box holds dictated text, a typed `/huginn` would become
+part of that text. Escape cannot stop listening: over text in the box it belongs to Claude Code, and
+a plugin does not receive it.
+
+Versions: `v0.2.1` (tag) is the phrase-only version on the older `/api/ear`. It is the fallback if the
+streaming version misbehaves.
 
 ## Requirements
 
@@ -72,10 +85,10 @@ claude plugin validate .
 claude plugin test .          # tests/ear.test.ts fakes the client at process.spawn
 ```
 
-## Known limits (v0.1)
+## Known limits
 
-- Text arrives per **phrase**, not word by word: the server sends a phrase after 300 ms of silence.
-  Whisper sometimes ends a phrase with `...` where you only paused.
+- The live text arrives per **phrase** (after 300 ms of silence), not word by word; the grey preview
+  covers a long phrase. The final text replaces it on stop.
 - A spoken stop word is built but OFF (`VOICE_STOP` in `hooks/register.tsx`): in a test „koniec”
   stopped and „stop” did not, likely because the ear drops speech under 400 ms before decoding.
 - Stop uses `kill -INT`, so the plugin needs a POSIX host (Linux, WSL, macOS).

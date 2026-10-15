@@ -94,7 +94,7 @@ export const register: Register = (on, options) => {
       await setStopping($)
       await stop($, session)
       text = join(text, session.late.phrases.join(' ').trim())
-      for (const f of session.finals) text = replaceLast(text, f.old, f.text) ?? text
+      for (const f of session.finals) text = applyFinal(text, f.old, f.text) ?? text
     } catch {
       /* never let the ear block a prompt: send what was typed */
     }
@@ -198,8 +198,8 @@ function start($: EngineInterface, options: PluginOptions): Session {
             else await append($, line.text)
           } else if (line.type === 'final' && line.text) {
             const old = line.ids.map(id => session.phrases.get(id) ?? '').filter(Boolean).join(' ')
-            if (!old || old === line.text) continue
-            session.finals.push({ old, text: line.text })
+            if (old === line.text) continue
+            session.finals.push({ old, text: line.text })   // old '' = words never shown: appended
           }
         }
       }
@@ -249,8 +249,13 @@ async function append($: EngineInterface, text: string): Promise<void> {
 /** Replace the phrases a final covers, only where they still stand in the box unchanged. */
 async function replaceInBox($: EngineInterface, old: string, text: string): Promise<void> {
   const box = await $.prompt.read()
-  const next = replaceLast(box.text, old, text)
+  const next = applyFinal(box.text, old, text)
   if (next !== undefined) await $.prompt.fill({ text: next, mode: 'replace' })
+}
+
+/** A final with no phrases to replace (stop before the first pause) carries words never shown: append. */
+export function applyFinal(hay: string, old: string, text: string): string | undefined {
+  return old ? replaceLast(hay, old, text) : join(hay, text)
 }
 
 export function replaceLast(hay: string, old: string, text: string): string | undefined {
