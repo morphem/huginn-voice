@@ -7,8 +7,9 @@ import type { Listening } from '../types'
  * `/huginn` — dictate into the prompt box; Huginn transcribes on its own GPU while you speak.
  *
  *   /huginn          start listening
- *   …speak…          each phrase lands in the box at a pause (phrase); the band above the prompt
- *                    previews a long phrase before its pause (partial). Meanwhile the server decodes
+ *   …speak…          the phrase being spoken shows in the box in grey (partial); at a pause it is
+ *                    replaced by the decoded phrase in plain text (phrase). The band above the prompt
+ *                    stays one line, so the conversation above it never jumps. Meanwhile the server decodes
  *                    each ~12 s chunk again the way a recorded thought is decoded (final), in the
  *                    background; the plugin holds those finals so the text does not change under
  *                    your eyes while you talk
@@ -40,6 +41,8 @@ type Session = {
   phrases: Map<number, string>
   /** Finals as they arrive, held until stop: the phrases each replaces, and its text. */
   finals: { old: string; text: string }[]
+  /** The grey preview now at the end of the box, exactly as inserted (separator included); '' if none. */
+  preview: string
   /** Set while a submit is waiting: phrases go here instead of into the box. */
   late?: { phrases: string[] }
   /** A stop arrived before the child reported its pid: signal it the moment the pid arrives. */
@@ -88,7 +91,7 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     const session = live
     if (!session || e.command) return next(e)
-    let text = e.text
+    let text = stripTail(e.text, session.preview)
     try {
       session.late = { phrases: [] }
       await setStopping($)
@@ -110,18 +113,11 @@ export const register: Register = (on, options) => {
       : now.state === 'stopping' ? '◌ Huginn: finishing…'
       : `● Huginn listening${now.detail ? ` (${now.detail})` : ''} `
     return (
-      <Box flexDirection="column">
-        <Box>
-          <Text color={now.state === 'listening' ? 'success' : undefined} dimColor={now.state !== 'listening'}>
-            {head}
-          </Text>
-          {now.state !== 'stopping' && <Button key="stop" label="Stop" hotkey="s" onPress={() => void halt($)} />}
-        </Box>
-        {now.state === 'listening' && now.preview ? (
-          <Text dimColor italic>
-            {`  … ${now.preview}`}
-          </Text>
-        ) : null}
+      <Box>
+        <Text color={now.state === 'listening' ? 'success' : undefined} dimColor={now.state !== 'listening'}>
+          {head}
+        </Text>
+        {now.state !== 'stopping' && <Button key="stop" label="Stop" hotkey="s" onPress={() => void halt($)} />}
       </Box>
     )
   })
@@ -139,11 +135,7 @@ async function setListening($: EngineInterface, value: Listening): Promise<void>
 }
 
 async function setStopping($: EngineInterface): Promise<void> {
-  await update($, listening, (s): Listening => ({ ...s, state: 'stopping', preview: undefined }))
-}
-
-async function setPreview($: EngineInterface, preview: string | undefined): Promise<void> {
-  await update($, listening, (s): Listening => (s.state === 'listening' ? { ...s, preview } : s))
+  await update($, listening, (s): Listening => ({ ...s, state: 'stopping' }))
 }
 
 function start($: EngineInterface, options: PluginOptions): Session {
@@ -156,7 +148,7 @@ function start($: EngineInterface, options: PluginOptions): Session {
   const python = str(options.python) || 'python3'
 
   let resolveEnded: () => void = () => {}
-  const session: Session = { ended: new Promise<void>(r => (resolveEnded = r)), phrases: new Map(), finals: [] }
+  const session: Session = { ended: new Promise<void>(r => (resolveEnded = r)), phrases: new Map(), finals: [], preview: '' }
 
   void (async () => {
     let buffered = ''
@@ -186,16 +178,16 @@ function start($: EngineInterface, options: PluginOptions): Session {
           } else if (line.type === 'error') {
             failure = line.message
           } else if (line.type === 'partial') {
-            if (!session.stopRequested) await setPreview($, line.text)
+            if (!session.stopRequested && !session.late) await putTail($, session, line.text, true)
           } else if (line.type === 'phrase' && line.text) {
-            await setPreview($, undefined)
             if (!session.stopRequested && isStopWord(line.text)) {
+              await putTail($, session, '', false)
               void halt($)
               continue
             }
             session.phrases.set(line.id, line.text)
             if (session.late) session.late.phrases.push(line.text)
-            else await append($, line.text)
+            else await putTail($, session, line.text, false)
           } else if (line.type === 'final' && line.text) {
             const old = line.ids.map(id => session.phrases.get(id) ?? '').filter(Boolean).join(' ')
             if (old === line.text) continue
@@ -210,6 +202,11 @@ function start($: EngineInterface, options: PluginOptions): Session {
       // Stopped without sending: swap the held finals into the box in one step. (A submit applies
       // them to the prompt itself, in its own hook.)
       if (!session.late) {
+        try {
+          await putTail($, session, '', false)   // the grey preview goes; the final covers its words
+        } catch {
+          /* the box keeps it */
+        }
         for (const f of session.finals) {
           try {
             await replaceInBox($, f.old, f.text)
@@ -241,9 +238,29 @@ async function interrupt($: EngineInterface, pid: number): Promise<void> {
   }
 }
 
-async function append($: EngineInterface, text: string): Promise<void> {
+/**
+ * Put `text` at the end of the box in place of the current grey preview: grey again (`dim`, the next
+ * preview) or plain (`!dim`, a decoded phrase, which then stays). '' just removes the preview. Where
+ * the box no longer ends with the preview (he typed after it), the preview is left and `text` is
+ * appended.
+ */
+async function putTail($: EngineInterface, session: Session, text: string, dim: boolean): Promise<void> {
   const box = await $.prompt.read()
-  await $.prompt.fill({ text: box.text && !/\s$/.test(box.text) ? ` ${text}` : text, mode: 'append' })
+  const base = stripTail(box.text, session.preview)
+  const sep = text && base && !/\s$/.test(base) ? ' ' : ''
+  const tail = text ? sep + text : ''
+  session.preview = dim ? tail : ''
+  if (base === box.text && !tail) return
+  await $.prompt.fill({
+    text: base + tail,
+    mode: 'replace',
+    decorations: dim && tail ? [{ start: base.length + sep.length, end: base.length + tail.length, dimColor: true, italic: true }] : undefined,
+  })
+}
+
+/** `hay` without `tail` at its end, or `hay` unchanged where it does not end with it. */
+export function stripTail(hay: string, tail: string): string {
+  return tail && hay.endsWith(tail) ? hay.slice(0, hay.length - tail.length) : hay
 }
 
 /** Replace the phrases a final covers, only where they still stand in the box unchanged. */

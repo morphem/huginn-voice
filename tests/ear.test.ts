@@ -15,6 +15,7 @@ function quiet(on: On) {
 
 const phrase = (id: number, text: string, chunk = 1): Ev => ({ type: 'phrase', id, chunk, text })
 const final = (ids: number[], text: string, chunk = 1): Ev => ({ type: 'final', chunk, ids, text })
+const partial = (text: string): Ev => ({ type: 'partial', text })
 
 function fakeClient(onKill: Promise<void>, during: Ev[], atStop: Ev[]) {
   const lines = (evs: Ev[]) => evs.map(e => JSON.stringify(e) + '\n').join('')
@@ -28,7 +29,7 @@ function fakeClient(onKill: Promise<void>, during: Ev[], atStop: Ev[]) {
 }
 
 function world(on: On, initial: string) {
-  const w = { box: initial, sent: '', kills: [] as string[][], killed: () => {} }
+  const w = { box: initial, sent: '', kills: [] as string[][], killed: () => {}, dim: [] as string[] }
   const onKill = new Promise<void>(r => (w.killed = r))
   on('process.run', async (_$, e) => {
     w.kills.push([...e.argv])
@@ -38,6 +39,7 @@ function world(on: On, initial: string) {
   on('prompt.read', async () => ({ value: { text: w.box, cursor: w.box.length } }))
   on('prompt.fill', async (_$, e) => {
     w.box = e.mode === 'append' ? w.box + e.text : e.text
+    w.dim = (e.decorations ?? []).filter(d => d.dimColor).map(d => e.text.slice(d.start, d.end))
     return { isFilled: true, text: w.box, cursor: w.box.length }
   })
   on('prompt.submit', async (_$, e) => {
@@ -59,6 +61,46 @@ test('phrases land in the box; Enter sends with the finalized tail and stops', a
   await $.prompt.submit({ text: w.box })
   expect(w.kills).toEqual([['kill', '-INT', '4242']])
   expect(w.sent).toBe('Fix the bug w pliku app.py. I dodaj test.')
+})
+
+test('the preview is grey in the box and the phrase replaces it at the pause', async ($, on) => {
+  const clock = quiet(on)
+  const { w, onKill } = world(on, 'Fix the bug')
+  let step: () => void = () => {}
+  const stepped = new Promise<void>(r => (step = r))
+  on('process.spawn', async function* () {
+    const out = (e: Ev) => ({ stream: 'stdout' as const, text: JSON.stringify(e) + '\n' })
+    yield { stream: 'stdout' as const, text: '{"type":"pid","pid":5}\n{"type":"ready"}\n' }
+    yield out(partial('w pli'))
+    yield out(partial('w pliku ap'))
+    await stepped
+    yield out(phrase(1, 'w pliku app.py'))
+    await onKill
+    yield { stream: 'stdout' as const, text: '{"type":"done"}\n' }
+    return { value: { code: 0, signal: null } }
+  })
+
+  await $.command.run({ command: 'huginn', args: '' })
+  await clock.settle()
+  expect(w.box).toBe('Fix the bug w pliku ap')
+  expect(w.dim).toEqual(['w pliku ap'])
+  step()
+  await clock.settle()
+  expect(w.box).toBe('Fix the bug w pliku app.py')
+  expect(w.dim).toEqual([])
+  await $.command.run({ command: 'huginn', args: '' })   // [Stop]: end the session inside the test
+})
+
+test('Enter with a grey preview still in the box: the preview goes, the final covers its words', async ($, on) => {
+  const clock = quiet(on)
+  const { w, onKill } = world(on, '')
+  on('process.spawn', fakeClient(onKill, [phrase(1, 'popraw test'), partial('i dod')], [final([1], 'Popraw test i dodaj asercję.')]))
+
+  await $.command.run({ command: 'huginn', args: '' })
+  await clock.settle()
+  expect(w.box).toBe('popraw test i dod')
+  await $.prompt.submit({ text: w.box })
+  expect(w.sent).toBe('Popraw test i dodaj asercję.')
 })
 
 test('finals are held while he talks and swapped in at once on stop', async ($, on) => {
