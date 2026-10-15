@@ -9,7 +9,7 @@ import type { Listening } from '../types'
  *   /huginn          start listening; each phrase lands in the box about a second after you pause
  *   Enter            sends the prompt AND stops listening; the phrase still in flight is added first
  *   [ Stop ]         the band above the prompt: stop without sending (click it, or ctrl+x tab, then s)
- *   „stop”           said on its own as one phrase: the same, hands-free; the word never reaches the box
+ *   (spoken stop)    a placeholder, OFF: see VOICE_STOP below
  *   /huginn          (only while the box is empty) the same again
  *
  * Stopping must never need the prompt box: once the box holds dictated text, a typed `/huginn`
@@ -40,7 +40,16 @@ const STOP_WAIT_MS = 5000
 const DEFAULT_URL = 'https://huginn.prawdzik.eu'
 const DEFAULT_MIC = 'RDPSource'
 
-/** A phrase that is only one of these stops listening and is not typed into the box. */
+/**
+ * Spoken stop — a placeholder, OFF. With it on, a phrase that is only one of STOP_WORDS stops
+ * listening and is not typed into the box.
+ *
+ * Tested by the owner in v0.2.0: „koniec” stopped, „stop” did not. A likely cause, not yet
+ * verified: the ear drops speech shorter than MIN_SPEECH_MS (400 ms) before it decodes, as a blip,
+ * and a single-syllable „stop” falls under that; two-syllable „koniec” does not. The [Stop] button
+ * covers the need, so the feature stays off until there is a reason to tune it.
+ */
+const VOICE_STOP = false
 const STOP_WORDS = new Set(['stop', 'stop huginn', 'huginn stop', 'koniec', 'koniec nasłuchu'])
 
 const listening = atom({ plugin: 'huginn-voice', key: 'listening' } as const, { state: 'off' } as Listening)
@@ -52,7 +61,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: 'huginn',
-      description: 'Dictate into the prompt (Huginn ear, your GPU). Stop: [Stop] above the prompt or say „stop”; Enter sends and stops.',
+      description: 'Dictate into the prompt (Huginn ear, your GPU). Stop without sending: [Stop] above the prompt; Enter sends and stops.',
       immediate: true,
     })
     await setListening($, { state: 'off' })
@@ -63,7 +72,7 @@ export const register: Register = (on, options) => {
     if (await halt($)) return { text: 'Huginn: stopped listening.' }
     await setListening($, { state: 'connecting' })
     live = start($, options)
-    return { text: 'Huginn: connecting… speak once the band says listening. Stop: [Stop] or say „stop”. Enter sends and stops.' }
+    return { text: 'Huginn: connecting… speak once the band says listening. Stop without sending: [Stop] (click, or ctrl+x tab then Enter). Enter sends and stops.' }
   })
 
   on('prompt.submit', async ($, e, next) => {
@@ -88,7 +97,7 @@ export const register: Register = (on, options) => {
     const label =
       now.state === 'connecting' ? '◌ Huginn: connecting…'
       : now.state === 'stopping' ? '◌ Huginn: finishing the last phrase…'
-      : `● Huginn listening${now.detail ? ` (${now.detail})` : ''} — say „stop” or `
+      : `● Huginn listening${now.detail ? ` (${now.detail})` : ''} `
     return (
       <Box>
         <Text color={now.state === 'listening' ? 'success' : undefined} dimColor={now.state !== 'listening'}>
@@ -196,7 +205,7 @@ async function append($: EngineInterface, text: string): Promise<void> {
 }
 
 export function isStopWord(text: string): boolean {
-  return STOP_WORDS.has(text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim())
+  return VOICE_STOP && STOP_WORDS.has(text.toLowerCase().replace(/[^\p{L}\s]/gu, ' ').replace(/\s+/g, ' ').trim())
 }
 
 function join(a: string, b: string): string {

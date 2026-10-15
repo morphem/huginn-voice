@@ -10,7 +10,6 @@ other cloud speech service, and this works with any model provider (for example 
 …speak…         each phrase appears in the box after a short pause
 Enter           send the prompt AND stop; the phrase still in flight is added to the prompt first
 [ Stop ]        stop without sending: click it, or ctrl+x tab, then Enter (or s)
-„stop”          said on its own as one phrase: the same, hands-free; the word is not typed
 ```
 
 Stopping never needs the prompt box: once the box holds dictated text, a typed `/huginn` would
@@ -77,5 +76,6 @@ claude plugin test .          # tests/ear.test.ts fakes the client at process.sp
 
 - Text arrives per **phrase**, not word by word: the server sends a phrase after 300 ms of silence.
   Whisper sometimes ends a phrase with `...` where you only paused.
-- Recognised stop words: `stop`, `stop huginn`, `huginn stop`, `koniec`, `koniec nasłuchu`.
+- A spoken stop word is built but OFF (`VOICE_STOP` in `hooks/register.tsx`): in a test „koniec”
+  stopped and „stop” did not, likely because the ear drops speech under 400 ms before decoding.
 - Stop uses `kill -INT`, so the plugin needs a POSIX host (Linux, WSL, macOS).
