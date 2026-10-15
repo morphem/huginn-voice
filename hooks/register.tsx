@@ -7,11 +7,14 @@ import type { Listening } from '../types'
  * `/huginn` — dictate into the prompt box; Huginn transcribes on its own GPU while you speak.
  *
  *   /huginn          start listening
- *   …speak…          the band above the prompt previews the phrase you are saying (partial);
- *                    each phrase lands in the box at a pause (phrase); about every 20 s of audio
- *                    the phrases are replaced by a final text decoded like a recorded thought (final)
- *   Enter            finalizes what is still open, puts it in the prompt, sends, and stops
- *   [ Stop ]         the band: finalize and stop without sending (click, or ctrl+x tab, then Enter)
+ *   …speak…          each phrase lands in the box at a pause (phrase); the band above the prompt
+ *                    previews a long phrase before its pause (partial). Meanwhile the server decodes
+ *                    each ~12 s chunk again the way a recorded thought is decoded (final), in the
+ *                    background; the plugin holds those finals so the text does not change under
+ *                    your eyes while you talk
+ *   Enter            finalizes what is still open, swaps in every final at once, sends, and stops
+ *   [ Stop ]         the band: the same without sending (click, or ctrl+x tab, then Enter); the final
+ *                    text replaces the dictated phrases in the box in one step
  *   (spoken stop)    a placeholder, OFF: see VOICE_STOP below
  *
  * A final replaces its phrases only where they still stand in the box as they were typed: if you
@@ -35,8 +38,10 @@ type Session = {
   ended: Promise<void>
   /** Phrase texts by id: what a final has to find in the box to replace. */
   phrases: Map<number, string>
-  /** Set while a submit is waiting: phrases and finals go here instead of into the box. */
-  late?: { phrases: string[]; finals: { old: string; text: string }[] }
+  /** Finals as they arrive, held until stop: the phrases each replaces, and its text. */
+  finals: { old: string; text: string }[]
+  /** Set while a submit is waiting: phrases go here instead of into the box. */
+  late?: { phrases: string[] }
   /** A stop arrived before the child reported its pid: signal it the moment the pid arrives. */
   stopRequested?: boolean
 }
@@ -85,11 +90,11 @@ export const register: Register = (on, options) => {
     if (!session || e.command) return next(e)
     let text = e.text
     try {
-      session.late = { phrases: [], finals: [] }
+      session.late = { phrases: [] }
       await setStopping($)
       await stop($, session)
       text = join(text, session.late.phrases.join(' ').trim())
-      for (const f of session.late.finals) text = replaceLast(text, f.old, f.text) ?? text
+      for (const f of session.finals) text = replaceLast(text, f.old, f.text) ?? text
     } catch {
       /* never let the ear block a prompt: send what was typed */
     }
@@ -151,7 +156,7 @@ function start($: EngineInterface, options: PluginOptions): Session {
   const python = str(options.python) || 'python3'
 
   let resolveEnded: () => void = () => {}
-  const session: Session = { ended: new Promise<void>(r => (resolveEnded = r)), phrases: new Map() }
+  const session: Session = { ended: new Promise<void>(r => (resolveEnded = r)), phrases: new Map(), finals: [] }
 
   void (async () => {
     let buffered = ''
@@ -194,8 +199,7 @@ function start($: EngineInterface, options: PluginOptions): Session {
           } else if (line.type === 'final' && line.text) {
             const old = line.ids.map(id => session.phrases.get(id) ?? '').filter(Boolean).join(' ')
             if (!old || old === line.text) continue
-            if (session.late) session.late.finals.push({ old, text: line.text })
-            else await replaceInBox($, old, line.text)
+            session.finals.push({ old, text: line.text })
           }
         }
       }
@@ -203,6 +207,17 @@ function start($: EngineInterface, options: PluginOptions): Session {
       failure = failure || `could not start the dictation client: ${String(err)}`
     } finally {
       if (failure) $.ui.toast(`Huginn: ${failure}`)
+      // Stopped without sending: swap the held finals into the box in one step. (A submit applies
+      // them to the prompt itself, in its own hook.)
+      if (!session.late) {
+        for (const f of session.finals) {
+          try {
+            await replaceInBox($, f.old, f.text)
+          } catch {
+            /* the box keeps the phrases */
+          }
+        }
+      }
       if (live === session) live = undefined
       await setListening($, { state: 'off' })
       resolveEnded()

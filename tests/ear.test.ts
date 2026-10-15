@@ -61,15 +61,19 @@ test('phrases land in the box; Enter sends with the finalized tail and stops', a
   expect(w.sent).toBe('Fix the bug w pliku app.py. I dodaj test.')
 })
 
-test('a final replaces its phrases in the box while listening goes on', async ($, on) => {
+test('finals are held while he talks and swapped in at once on stop', async ($, on) => {
   const clock = quiet(on)
   const { w, onKill } = world(on, '')
-  on('process.spawn', fakeClient(onKill, [phrase(1, 'pierwsze zdanie'), phrase(2, 'drugie zdanie'), final([1, 2], 'Pierwsze zdanie. Drugie zdanie.'), phrase(3, 'trzecie', 2)], []))
+  on('process.spawn', fakeClient(onKill, [phrase(1, 'pierwsze zdanie'), phrase(2, 'drugie zdanie'), final([1, 2], 'Pierwsze zdanie. Drugie zdanie.'), phrase(3, 'trzecie airflow', 2)], [final([3], 'Trzecie Airflow.', 2)]))
 
   await $.command.run({ command: 'huginn', args: '' })
   await clock.settle()
-  expect(w.box).toBe('Pierwsze zdanie. Drugie zdanie. trzecie')
+  expect(w.box).toBe('pierwsze zdanie drugie zdanie trzecie airflow')   // unchanged while talking
   expect(w.kills).toEqual([])
+
+  await $.command.run({ command: 'huginn', args: '' })                    // [Stop]
+  expect(w.box).toBe('Pierwsze zdanie. Drugie zdanie. Trzecie Airflow.')
+  expect(w.sent).toBe('')
 })
 
 test('a final is dropped where the person edited its phrases by hand', async ($, on) => {
@@ -92,6 +96,7 @@ test('a final is dropped where the person edited its phrases by hand', async ($,
   w.box = 'ONEKEY reloader'            // he fixed it himself
   editAt()
   await clock.settle()
+  await $.command.run({ command: 'huginn', args: '' })   // [Stop]: the held final finds nothing to replace
   expect(w.box).toBe('ONEKEY reloader')
 })
 
