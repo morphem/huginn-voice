@@ -1,6 +1,6 @@
 {
   "name": "huginn-voice",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Dictate into the Claude Code prompt box. Speech is transcribed by your own Huginn server (faster-whisper on its GPU), not by a cloud service.",
   "author": {
     "name": "Krzysztof Prawdzik"
@@ -33,6 +33,13 @@
       "title": "Python executable",
       "description": "Leave empty for python3 (runs bin/huginn-ear.py, stdlib only).",
       "default": "python3",
+      "required": false
+    },
+    "save": {
+      "type": "string",
+      "title": "Save dictations",
+      "description": "Leave empty for on: each dictation is also sent to Huginn as one continuous recording, filed as a thought in the 'prompts' space (hidden from the default cosmos). Type off to keep nothing.",
+      "default": "on",
       "required": false
     }
   }

@@ -165,3 +165,19 @@ test('a spoken stop word is OFF: „koniec” is typed like any phrase and liste
   expect(w.kills).toEqual([])
   expect(w.box).toBe('Popraw test w module ear Koniec.')
 })
+
+test('dictations are saved by default (the client gets HUGINN_SAVE=on)', async ($, on) => {
+  const clock = quiet(on)
+  const { onKill } = world(on, '')
+  const envs: Record<string, string>[] = []
+  const client = fakeClient(onKill, [], [])
+  on('process.spawn', async function* (_$, e) {
+    envs.push({ ...(e.env ?? {}) })
+    return yield* client()
+  })
+
+  await $.command.run({ command: 'huginn', args: '' })
+  await clock.settle()
+  await $.command.run({ command: 'huginn', args: '' })
+  expect(envs[0].HUGINN_SAVE).toBe('on')
+})

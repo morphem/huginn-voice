@@ -23,10 +23,14 @@ import type { Listening } from '../types'
  *
  * `bin/huginn-ear.py` does the work (ffmpeg → WebSocket /api/dictate → JSON lines); this module
  * starts it, stops it with SIGINT (the client then asks the server to finalize), and edits the box.
+ * The band says "listening" as soon as the microphone is open: the client holds what is said while
+ * it connects. Unless the `save` option is "off", the client also keeps the whole session as one
+ * recording and, after stop, sends it to Huginn as a thought in the 'prompts' space.
  */
 
 type Line =
   | { type: 'pid'; pid: number }
+  | { type: 'mic' }
   | { type: 'ready'; model?: string; device?: string }
   | { type: 'partial'; text: string }
   | { type: 'phrase'; id: number; chunk: number; text: string }
@@ -145,6 +149,7 @@ function start($: EngineInterface, options: PluginOptions): Session {
     HUGINN_MIC: str(options.mic) || DEFAULT_MIC,
   }
   if (str(options.api_key)) env.HUGINN_API_KEY = str(options.api_key)
+  env.HUGINN_SAVE = str(options.save) || 'on'
   const python = str(options.python) || 'python3'
 
   let resolveEnded: () => void = () => {}
@@ -173,8 +178,12 @@ function start($: EngineInterface, options: PluginOptions): Session {
           if (line.type === 'pid') {
             session.pid = line.pid
             if (session.stopRequested) void interrupt($, line.pid)
+          } else if (line.type === 'mic') {
+            // Safe to speak: the client holds the audio until the server is ready.
+            if (!session.stopRequested) await update($, listening, (s): Listening => (s.state === 'connecting' ? { ...s, state: 'listening' } : s))
           } else if (line.type === 'ready') {
-            await setListening($, { state: 'listening', detail: [line.model, line.device].filter(Boolean).join(' · ') })
+            const detail = [line.model, line.device].filter(Boolean).join(' · ')
+            if (!session.stopRequested) await update($, listening, (s): Listening => (s.state === 'stopping' ? s : { state: 'listening', detail }))
           } else if (line.type === 'error') {
             failure = line.message
           } else if (line.type === 'partial') {

@@ -1,6 +1,6 @@
 # huginn-voice — dictate into Claude Code with your own GPU
 
-`/huginn` streams the microphone to your own Huginn server (`/api/dictate`, Huginn ≥ 1.146.0), which
+`/huginn` streams the microphone to your own Huginn server (`/api/dictate`, Huginn ≥ 1.147.0), which
 transcribes on its own GPU with faster-whisper `large-v3`. Nothing goes to Anthropic or to any other
 cloud speech service, and this works with any model provider (for example GitHub Copilot).
 
@@ -22,7 +22,18 @@ Two passes over the same audio:
   in one step.
 
 If you edit a dictated phrase by hand before stop, the final for that part is dropped and your edit
-stays. Dictation creates **no note** in the mind, no job, and no model call except the decoder.
+stays.
+
+The microphone opens first, while the client connects, and the band says *listening* as soon as it
+is open: what you say before the server is ready is held and sent, so the first words are not lost.
+
+**Saved as a thought (option `save`, on by default).** The client also records the whole session as
+one continuous file, with your real pauses. After stop it hands the file to a detached upload, so
+nothing waits for it: Huginn transcribes it the way it transcribes any thought and files it in the
+**`prompts`** space, which the cosmos hides by default (switch to it with the *Prompts* chip). A
+session in which nothing was heard is not sent. A file that fails to upload stays in
+`~/.cache/huginn-voice/` (the reason is in `upload.log` there). Set `save` to `off` to keep nothing.
+The live streaming itself still creates no note and no job.
 
 Stopping never needs the prompt box: once the box holds dictated text, a typed `/huginn` would become
 part of that text. Escape cannot stop listening: over text in the box it belongs to Claude Code, and
@@ -68,6 +79,7 @@ HUGINN_API_KEY=… claude --plugin-dir /path/to/huginn-voice
 | `url` | `https://huginn.prawdzik.eu` | the Huginn server |
 | `mic` | `RDPSource` | pulse source (the Windows microphone under WSL2); `default` follows the system |
 | `python` | `python3` | interpreter for the client |
+| `save` | `on` | `off`: do not keep the recording as a thought in the `prompts` space |
 
 ## Test the engine without Claude Code
 
@@ -76,7 +88,8 @@ HUGINN_API_KEY=… python3 bin/huginn-ear.py                  # speak; Ctrl-C st
 HUGINN_API_KEY=… python3 bin/huginn-ear.py --input talk.webm  # stream a recording instead
 ```
 
-Each output line is JSON: `pid`, `ready`, `heard` (with `decode_ms`), then `done` or `error`.
+Each output line is JSON: `pid`, `mic`, `ready`, then `partial` / `phrase` / `final`, then `done` or
+`error`. `HUGINN_SAVE=off` keeps the test session from being sent as a thought.
 
 ## Develop
 
