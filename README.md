@@ -48,8 +48,13 @@ The same dictation works in OpenCode (≥ 1.18.33) from this repository: `openco
 is a TUI plugin on the same engine (`bin/huginn-ear.py`) and the same server.
 
 ```
-opencode plugin -g github:morphem/huginn-voice      # adds it to ~/.config/opencode/tui.json
+git clone https://github.com/morphem/huginn-voice ~/.local/share/huginn-voice
+sh ~/.local/share/huginn-voice/scripts/install-opencode.sh     # again to update (it pulls)
 ```
+
+The script points `~/.config/opencode/tui.json` at the plugin file in that clone. Do not use
+`opencode plugin github:morphem/huginn-voice`: it installs into a cache directory named
+`github:morphem`, and OpenCode 1.18.33 does not load a plugin under a path with a colon in it.
 
 | Key | What it does |
 |---|---|
@@ -61,7 +66,7 @@ opencode plugin -g github:morphem/huginn-voice      # adds it to ~/.config/openc
 Differences from Claude Code: the preview of the phrase being spoken is in the band under the box,
 not grey inside it (OpenCode's box has no styled ranges), and stopping has a key of its own.
 Options go in the tuple form of the entry in `tui.json`, or in the environment:
-`["github:morphem/huginn-voice", {"mic": "RDPSource", "save": "on", "key": "alt+h"}]`; the key comes
+`["…/opencode/huginn-voice.js", {"mic": "RDPSource", "save": "on", "key": "alt+h"}]`; the key comes
 from `HUGINN_API_KEY` unless `api_key` is set there.
 
 How it works: the plugin replaces the `home_prompt` and `session_prompt` slots with OpenCode's own
@@ -71,8 +76,9 @@ OpenCode compiles JSX only for plugin files outside `node_modules`, so the packa
 `opencode/huginn-voice.js`, built by `scripts/build-opencode.sh`. Rebuild and commit it after every
 change to the `.tsx`.
 
-If you used Huginn's older OpenCode integration (`/huginn` and `/huginn-refine` as markdown commands
-plus `plugins/huginn.ts` in `~/.config/opencode`), remove it: both register `/huginn`.
+The script also moves Huginn's older OpenCode integration (`/huginn` and `/huginn-refine` as
+markdown commands plus `plugins/huginn.ts` in `~/.config/opencode`) to a backup folder, because both
+register `/huginn`.
 
 ## Requirements
 
