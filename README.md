@@ -42,6 +42,38 @@ a plugin does not receive it.
 Versions: `v0.2.1` (tag) is the phrase-only version on the older `/api/ear`. It is the fallback if the
 streaming version misbehaves.
 
+## OpenCode
+
+The same dictation works in OpenCode (≥ 1.18.33) from this repository: `opencode/huginn-voice.tsx`
+is a TUI plugin on the same engine (`bin/huginn-ear.py`) and the same server.
+
+```
+opencode plugin -g github:morphem/huginn-voice      # adds it to ~/.config/opencode/tui.json
+```
+
+| Key | What it does |
+|---|---|
+| `/huginn` or **alt+h** | start listening; alt+h also works with text in the box |
+| …speak… | the phrase being spoken shows in the band under the box; at a pause it is appended to the box |
+| **Enter** | finalizes, swaps in the final text, sends, and stops |
+| **alt+h** | stops without sending (or `/huginn` on an empty box, or ctrl+p → *Huginn*) |
+
+Differences from Claude Code: the preview of the phrase being spoken is in the band under the box,
+not grey inside it (OpenCode's box has no styled ranges), and stopping has a key of its own.
+Options go in the tuple form of the entry in `tui.json`, or in the environment:
+`["github:morphem/huginn-voice", {"mic": "RDPSource", "save": "on", "key": "alt+h"}]`; the key comes
+from `HUGINN_API_KEY` unless `api_key` is set there.
+
+How it works: the plugin replaces the `home_prompt` and `session_prompt` slots with OpenCode's own
+`Prompt` and keeps its ref, so it can read and write the text; while listening it binds Enter in a
+layer of its own, because the prompt's `onSubmit` fires only after the box is already cleared.
+OpenCode compiles JSX only for plugin files outside `node_modules`, so the package ships
+`opencode/huginn-voice.js`, built by `scripts/build-opencode.sh`. Rebuild and commit it after every
+change to the `.tsx`.
+
+If you used Huginn's older OpenCode integration (`/huginn` and `/huginn-refine` as markdown commands
+plus `plugins/huginn.ts` in `~/.config/opencode`), remove it: both register `/huginn`.
+
 ## Requirements
 
 - `python3` and `ffmpeg` on the path (the client `bin/huginn-ear.py` is stdlib only).
