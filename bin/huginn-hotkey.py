@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Hold a key, speak, let go: one dictation for the Windows hotkey (windows/huginn-hotkey.ahk).
 
-The AutoHotkey script runs this through wsl.exe when the key goes down and talks to it through
-three files in one directory (a Windows temp folder, seen from WSL under /mnt/c):
+The AutoHotkey script starts this through wsl.exe once (--serve) and talks to it through files in
+one directory (a Windows temp folder, seen from WSL under /mnt/c):
 
-    mic      we write it when the microphone is open — the tooltip turns into "listening"
+    go       AutoHotkey writes it when the key goes down — we start (--serve waits warm for it)
+    mic      we write it when the microphone is open — the tooltip turns into "speak"
     stop     AutoHotkey writes it when the key comes up — we stop and finalize
-    out.txt  we write the final text, on ONE line, when we are done; AutoHotkey types it
+    out.txt  we write the final text, on ONE line; AutoHotkey types it
     err.txt  we write why, when there is no text to give
+    done     we write it last, when out.txt or err.txt is in place
 
 The engine is bin/huginn-ear.py (the same socket, decoder and glossary as /huginn). The finals
 replace the phrases they cover, as in the prompt box, so the text is what Huginn decoded the way it
@@ -33,6 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(os.path.expanduser("~"), ".config", "huginn-voice", "env")
 MAX_HOLD_S = 300          # a key that never comes up (AutoHotkey died) does not hold the mic forever
 POLL_S = 0.05
+STALE_S = 600         # no `alive` touch for this long: the AutoHotkey script is gone
 
 
 def load_env(path: str = ENV_FILE) -> None:
@@ -72,20 +75,12 @@ def write(path: str, text: str) -> None:
     os.replace(tmp, path)
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("--dir", required=True, help="the exchange directory (see above)")
-    ap.add_argument("--input", help="stream this audio file instead of the microphone (testing)")
-    args = ap.parse_args(argv)
-
-    load_env()
-    os.environ.setdefault("HUGINN_SOURCE", "hotkey")
-    os.environ.setdefault("HUGINN_MIC", "RDPSource")          # the Windows microphone under WSLg
-    out, err, stop = (os.path.join(args.dir, n) for n in ("out.txt", "err.txt", "stop"))
-
+def dictate(d: str, input_file: str = None) -> int:
+    """One dictation: from now until the stop file appears. Writes out.txt or err.txt, then done."""
+    out, err, stop = (os.path.join(d, n) for n in ("out.txt", "err.txt", "stop"))
     cmd = [sys.executable, os.path.join(HERE, "huginn-ear.py")]
-    if args.input:
-        cmd += ["--input", args.input]
+    if input_file:
+        cmd += ["--input", input_file]
     ear = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
 
     events, error = [], None
@@ -99,7 +94,7 @@ def main(argv=None) -> int:
             except ValueError:
                 continue
             if e.get("type") == "mic":
-                write(os.path.join(args.dir, "mic"), "")
+                write(os.path.join(d, "mic"), "")
             elif e.get("type") == "error":
                 error = e.get("message") or "the ear failed"
             events.append(e)
@@ -121,9 +116,43 @@ def main(argv=None) -> int:
     text = assemble(events)
     if text:
         write(out, text)
-        return 0
-    write(err, error or "nothing was heard")
-    return 1
+    else:
+        write(err, error or "nothing was heard")
+    write(os.path.join(d, "done"), "")
+    return 0 if text else 1
+
+
+def serve(d: str, input_file: str = None) -> int:
+    """Wait warm for the `go` file, so a key press does not pay for starting WSL and Python (~1-2 s
+    on a laptop, words said meanwhile were lost). The microphone stays CLOSED while waiting. Ends on
+    the `quit` file, or when the script has not touched `alive` for STALE_S (AutoHotkey died)."""
+    go, quit_, alive = (os.path.join(d, n) for n in ("go", "quit", "alive"))
+    write(os.path.join(d, "waiting"), str(os.getpid()))
+    while not os.path.exists(quit_):
+        if os.path.exists(go):
+            os.remove(go)
+            dictate(d, input_file)
+            continue
+        try:
+            if time.time() - os.path.getmtime(alive) > STALE_S:
+                return 0
+        except OSError:
+            pass
+        time.sleep(POLL_S)
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--dir", required=True, help="the exchange directory (see above)")
+    ap.add_argument("--serve", action="store_true", help="wait warm for `go` files (the hotkey's mode)")
+    ap.add_argument("--input", help="stream this audio file instead of the microphone (testing)")
+    args = ap.parse_args(argv)
+
+    load_env()
+    os.environ.setdefault("HUGINN_SOURCE", "hotkey")
+    os.environ.setdefault("HUGINN_MIC", "RDPSource")          # the Windows microphone under WSLg
+    return serve(args.dir, args.input) if args.serve else dictate(args.dir, args.input)
 
 
 if __name__ == "__main__":

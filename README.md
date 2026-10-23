@@ -58,8 +58,10 @@ sh ~/.local/share/huginn-voice/scripts/install-hotkey.sh              # --autost
 
 The script keeps your key in `~/.config/huginn-voice/env` (asked once; `wsl.exe` does not read
 `~/.bashrc`) and writes `huginn-hotkey.ahk` to your Windows home folder. Double-click it: a green
-**H** appears by the clock. While you hold the key the tooltip says *listening*; words said before it
-does may be lost (WSL takes about a second to open the microphone). Settings in the same env file:
+**H** appears by the clock. Hold the key: the tooltip says *wait…*, then *speak* once the
+microphone is open (under a second: a helper waits in WSL with the microphone closed, so a press
+does not start WSL again). Words said before *speak* may be lost. The text ends with a space, so
+the next sentence follows it. Settings in the same env file:
 `HUGINN_MIC` (default `RDPSource`), `HUGINN_URL`, `HUGINN_SAVE=off`.
 
 ## OpenCode
