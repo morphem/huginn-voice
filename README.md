@@ -64,6 +64,11 @@ does not start WSL again). Words said before *speak* may be lost. The text ends 
 the next sentence follows it. Settings in the same env file:
 `HUGINN_MIC` (default `RDPSource`), `HUGINN_URL`, `HUGINN_SAVE=off`.
 
+**English:** press **Right Shift** too, at any moment while you hold Right Ctrl, and speak Polish:
+the text is typed in friendly, correct English (names such as ONEKEY or Reltio kept as they are),
+and the tooltip shows the Polish that was heard for a few seconds, so you can check it. Needs
+Huginn ≥ 1.151.0 (`POST /api/translate`). If the translation fails, the Polish is typed instead.
+
 ## OpenCode
 
 The same dictation works in OpenCode (≥ 1.18.33) from this repository: `opencode/huginn-voice.tsx`

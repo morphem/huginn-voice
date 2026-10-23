@@ -6,8 +6,10 @@ one directory (a Windows temp folder, seen from WSL under /mnt/c):
 
     go       AutoHotkey writes it when the key goes down — we start (--serve waits warm for it)
     mic      we write it when the microphone is open — the tooltip turns into "speak"
-    stop     AutoHotkey writes it when the key comes up — we stop and finalize
+    stop     AutoHotkey writes it when the key comes up — we stop and finalize; "en" inside it
+             (Right Shift was held) asks Huginn for English (POST /api/translate)
     out.txt  we write the final text, on ONE line; AutoHotkey types it
+    src.txt  for English: the Polish that was heard, so the tooltip can show it
     err.txt  we write why, when there is no text to give
     done     we write it last, when out.txt or err.txt is in place
 
@@ -30,6 +32,8 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ENV_FILE = os.path.join(os.path.expanduser("~"), ".config", "huginn-voice", "env")
@@ -66,6 +70,25 @@ def assemble(events) -> str:
             parts.insert(min(at, len(parts)), ["f", None, e.get("text") or ""])
     text = " ".join(p[2].strip() for p in parts if p[2].strip())
     return " ".join(text.split())                 # one line: no newline may reach a chat box
+
+
+def to_english(text: str) -> str:
+    """Huginn's translate endpoint; raises with a short reason when it cannot answer."""
+    raw = (os.environ.get("HUGINN_API_KEY") or "").strip().split(",")[0].strip()
+    key = raw.split(":", 1)[1].strip() if ":" in raw else raw        # a roster, as huginn-ear.api_key
+    url = (os.environ.get("HUGINN_URL") or "https://huginn.prawdzik.eu").rstrip("/") + "/api/translate"
+    req = urllib.request.Request(url, data=json.dumps({"text": text, "to": "en"}).encode(), method="POST",
+                                 headers={"Content-Type": "application/json", "User-Agent": "Huginn-Hotkey/0.7",
+                                          "X-API-Key": key})
+    try:
+        with urllib.request.urlopen(req, timeout=40) as r:
+            return " ".join((json.loads(r.read()).get("text") or "").split())
+    except urllib.error.HTTPError as exc:
+        try:
+            why = json.loads(exc.read()).get("detail")
+        except ValueError:
+            why = None
+        raise RuntimeError(why or f"HTTP {exc.code}") from exc
 
 
 def write(path: str, text: str) -> None:
@@ -114,6 +137,18 @@ def dictate(d: str, input_file: str = None) -> int:
     reader.join(timeout=2)
 
     text = assemble(events)
+    english = False
+    try:
+        with open(stop, encoding="utf-8") as f:
+            english = f.read().strip() == "en"
+    except OSError:
+        pass
+    if text and english:
+        write(os.path.join(d, "src.txt"), text)
+        try:
+            text = to_english(text) or text
+        except Exception as exc:                    # the Polish is still typed: nothing said is lost
+            write(os.path.join(d, "src.txt"), f"not translated ({exc}) — typed in Polish")
     if text:
         write(out, text)
     else:
