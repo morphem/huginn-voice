@@ -198,7 +198,8 @@ def upload(path: str, url: str, key: str, device: str) -> int:
         audio = f.read()
     body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{os.path.basename(path)}\"\r\n"
             f"Content-Type: audio/webm\r\n\r\n").encode() + audio + f"\r\n--{boundary}--\r\n".encode()
-    q = urllib.parse.urlencode({"source": "claude-code", "scope": "prompts", "device_label": device})
+    q = urllib.parse.urlencode({"source": os.environ.get("HUGINN_SOURCE") or "claude-code",
+                               "scope": "prompts", "device_label": device})
     req = urllib.request.Request(
         url.rstrip("/") + "/api/transcribe?" + q, data=body, method="POST",
         headers={"Content-Type": f"multipart/form-data; boundary={boundary}", "X-API-Key": key,

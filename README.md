@@ -42,6 +42,26 @@ a plugin does not receive it.
 Versions: `v0.2.1` (tag) is the phrase-only version on the older `/api/ear`. It is the fallback if the
 streaming version misbehaves.
 
+## Windows: hold a key, speak, let go (any app)
+
+For Teams, mail or any text field on a Windows machine with WSL: **hold Right Ctrl, speak, let go**,
+and the text is typed where the cursor is, about a second later. It never presses Enter: you read
+the text and send it yourself. Same server, decoder and glossary as `/huginn`; the session is kept
+in Huginn's `prompts` space with source `hotkey`, apart from your thoughts and your agent prompts.
+
+Needs [AutoHotkey v2](https://www.autohotkey.com/) on Windows and this clone in WSL (with ffmpeg):
+
+```
+git clone https://github.com/morphem/huginn-voice ~/.local/share/huginn-voice   # or: git pull
+sh ~/.local/share/huginn-voice/scripts/install-hotkey.sh              # --autostart: run at sign-in
+```
+
+The script keeps your key in `~/.config/huginn-voice/env` (asked once; `wsl.exe` does not read
+`~/.bashrc`) and writes `huginn-hotkey.ahk` to your Windows home folder. Double-click it: a green
+**H** appears by the clock. While you hold the key the tooltip says *listening*; words said before it
+does may be lost (WSL takes about a second to open the microphone). Settings in the same env file:
+`HUGINN_MIC` (default `RDPSource`), `HUGINN_URL`, `HUGINN_SAVE=off`.
+
 ## OpenCode
 
 The same dictation works in OpenCode (≥ 1.18.33) from this repository: `opencode/huginn-voice.tsx`
