@@ -118,17 +118,16 @@ sh ~/.local/share/huginn-voice/scripts/install-desktop.sh     # again to update
 
 | Control | What it does |
 |---|---|
-| the pill, **alt+h** or `/huginn` | start listening; again to stop without sending |
+| the pill, **alt+h** or `/huginn` | start listening; again to stop |
 | …speak… | the pill shows the phrase being spoken; at a pause the phrase goes into the box |
-| **Enter** | stops, swaps in the final text, and sends |
 
 How it works: OpenCode Desktop loads GUI plugins from its own Windows server, which reads only
 `%USERPROFILE%\.config\opencode\opencode.json`. The script builds `desktop/` in WSL (bun, or node and
 npm), copies the bundle to `%USERPROFILE%\.local\share\huginn-voice-desktop`, and lists it there. The
 plugin's main process runs `bin/huginn-ear.py` from this clone through `wsl.exe` (the script goes in
 on stdin) and stops it with `kill -INT`. The window writes phrases into the composer with
-`composer.insert` and the finals with `composer.setText`. The composer has no submit method, so Enter
-sends by focusing the box and pressing Enter in it. `wsl.exe` does not read `~/.bashrc`: the key comes
+`composer.insert` and the finals with `composer.setText`. It never sends: Enter stays the app's, and
+you send the prompt yourself. Dictation keeps going while you use another window. `wsl.exe` does not read `~/.bashrc`: the key comes
 from `~/.config/huginn-voice/env` or `~/.huginn-env`. Options go in the plugin entry in the Windows
 config: `api_key`, `url`, `mic`, `save`, `python`, `ear`, `key`, and `distro` (default: the default
 WSL distribution).

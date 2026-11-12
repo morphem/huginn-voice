@@ -16,7 +16,6 @@ export const setup: Plugin.Setup = (ctx) => {
   let target: NonNullable<Target>["composer"] | undefined
   let phrases = new Map<number, string>()
   let finals: { old: string; text: string }[] = []
-  let send = false
   const [mine, setMine] = createSignal(false)
 
   const state = () => ear.state()?.state ?? "off"
@@ -49,27 +48,11 @@ export const setup: Plugin.Setup = (ctx) => {
     write(text)
     if (data.failure) ctx.toast.show({ variant: "error", title: "Huginn", description: data.failure })
 
-    const submit = send && !data.failure && !!text.trim()
-    const composer = target
-
     phrases = new Map()
     finals = []
-    send = false
     target = undefined
     setMine(false)
-    if (submit && composer) void press(composer)
   })
-
-  /** The composer has no submit method: focus it and press Enter, as the user would. */
-  const press = async (composer: NonNullable<typeof target>) => {
-    composer.focus()
-    await new Promise((resolve) => requestAnimationFrame(resolve))
-
-    const box = document.activeElement
-
-    if (!box) return
-    box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }))
-  }
 
   const start = async () => {
     const composer = ctx.screen.current()?.composer
@@ -84,7 +67,6 @@ export const setup: Plugin.Setup = (ctx) => {
     target = composer
     phrases = new Map()
     finals = []
-    send = false
     setMine(true)
 
     await ear.start().catch((error: unknown) => {
@@ -94,14 +76,11 @@ export const setup: Plugin.Setup = (ctx) => {
     })
   }
 
-  const stop = (andSend: boolean) => {
-    send = andSend
-    void ear.stop().catch(console.error)
-  }
+  const stop = () => void ear.stop().catch(console.error)
 
   const toggle = () => {
     if (state() === "off") return void start()
-    if (mine() && (state() === "listening" || state() === "connecting")) stop(false)
+    if (mine() && (state() === "listening" || state() === "connecting")) stop()
   }
 
   ctx.add(
@@ -109,7 +88,7 @@ export const setup: Plugin.Setup = (ctx) => {
     (): Command => ({
       id: "dictate",
       title: "Huginn: dictate / stop",
-      description: "Dictate into the prompt (Huginn, your GPU). Again to stop without sending; Enter sends and stops.",
+      description: "Dictate into the prompt (Huginn, your GPU). Again to stop. Nothing is sent: you send the prompt yourself.",
       group: "Huginn",
       section: "prompt",
       keywords: "voice dictation speech microphone",
@@ -120,23 +99,6 @@ export const setup: Plugin.Setup = (ctx) => {
     }),
   )
 
-  // While this window listens, Enter is ours: stop, apply the finals, then send.
-  ctx.add(
-    Command,
-    (): Command => ({
-      id: "send",
-      title: "Huginn: stop and send",
-      group: "Huginn",
-      section: "prompt",
-      bind: "enter",
-      editable: true,
-      hidden: true,
-      run: () => {
-        if (!mine() || (state() !== "listening" && state() !== "connecting")) return false
-        stop(true)
-      },
-    }),
-  )
 
   ctx.add(ComposerPill, {
     id: "dictate",
@@ -153,7 +115,7 @@ export const setup: Plugin.Setup = (ctx) => {
         label: partial ? `● ${partial.length > 48 ? "…" + partial.slice(-48) : partial}` : "● listening",
         icon: "outline-wave-audio",
         tone: "success",
-        title: `Huginn is listening: ${key} stops, Enter sends`,
+        title: `Huginn is listening: ${key} or a click stops`,
         run: toggle,
       }
     },
