@@ -108,6 +108,31 @@ its text. It sends with the host command `prompt.submit`. While listening, a key
 high priority owns Enter. The band is a claim on the `prompt.footer.status` slot. OpenCode 2.x
 compiles the `.tsx` itself, so there is no build step.
 
+### OpenCode Desktop (Windows, with WSL)
+
+`desktop/` is a GUI plugin for OpenCode Desktop on Windows: a **Huginn** pill above the prompt box.
+
+```
+sh ~/.local/share/huginn-voice/scripts/install-desktop.sh     # again to update
+```
+
+| Control | What it does |
+|---|---|
+| the pill, **alt+h** or `/huginn` | start listening; again to stop without sending |
+| …speak… | the pill shows the phrase being spoken; at a pause the phrase goes into the box |
+| **Enter** | stops, swaps in the final text, and sends |
+
+How it works: OpenCode Desktop loads GUI plugins from its own Windows server, which reads only
+`%USERPROFILE%\.config\opencode\opencode.json`. The script builds `desktop/` in WSL (bun, or node and
+npm), copies the bundle to `%USERPROFILE%\.local\share\huginn-voice-desktop`, and lists it there. The
+plugin's main process runs `bin/huginn-ear.py` from this clone through `wsl.exe` (the script goes in
+on stdin) and stops it with `kill -INT`. The window writes phrases into the composer with
+`composer.insert` and the finals with `composer.setText`. The composer has no submit method, so Enter
+sends by focusing the box and pressing Enter in it. `wsl.exe` does not read `~/.bashrc`: the key comes
+from `~/.config/huginn-voice/env` or `~/.huginn-env`. Options go in the plugin entry in the Windows
+config: `api_key`, `url`, `mic`, `save`, `python`, `ear`, `key`, and `distro` (default: the default
+WSL distribution).
+
 How it works in 1.x: the plugin replaces the `home_prompt` and `session_prompt` slots with OpenCode's own
 `Prompt` and keeps its ref, so it can read and write the text; while listening it binds Enter in a
 layer of its own, because the prompt's `onSubmit` fires only after the box is already cleared.
