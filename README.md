@@ -71,16 +71,20 @@ Huginn ≥ 1.151.0 (`POST /api/translate`). If the translation fails, the Polish
 
 ## OpenCode
 
-The same dictation works in OpenCode (≥ 1.18.33) from this repository: `opencode/huginn-voice.tsx`
-is a TUI plugin on the same engine (`bin/huginn-ear.py`) and the same server.
+The same dictation works in OpenCode from this repository, on the same engine (`bin/huginn-ear.py`)
+and the same server:
+
+- OpenCode 2.x: `opencode2/tui.tsx`, a TUI plugin for the V2 API (`@opencode/plugin/tui`).
+- OpenCode 1.x (≥ 1.18.33): `opencode/huginn-voice.tsx`, built to `opencode/huginn-voice.js`.
 
 ```
 git clone https://github.com/morphem/huginn-voice ~/.local/share/huginn-voice
 sh ~/.local/share/huginn-voice/scripts/install-opencode.sh     # again to update (it pulls)
 ```
 
-The script points `~/.config/opencode/tui.json` at the plugin file in that clone. Do not use
-`opencode plugin github:morphem/huginn-voice`: it installs into a cache directory named
+The script reads `opencode --version`. For 2.x it adds the `opencode2` directory to
+`~/.config/opencode/cli.json`. For 1.x it points `~/.config/opencode/tui.json` at the plugin file.
+Do not use `opencode plugin github:morphem/huginn-voice`: it installs into a cache directory named
 `github:morphem`, and OpenCode 1.18.33 does not load a plugin under a path with a colon in it.
 
 | Key | What it does |
@@ -92,14 +96,22 @@ The script points `~/.config/opencode/tui.json` at the plugin file in that clone
 
 Differences from Claude Code: the preview of the phrase being spoken is in the band under the box,
 not grey inside it (OpenCode's box has no styled ranges), and stopping has a key of its own.
-Options go in the tuple form of the entry in `tui.json`, or in the environment:
-`["…/opencode/huginn-voice.js", {"mic": "RDPSource", "save": "on", "key": "alt+h"}]`; the key comes
-from `HUGINN_API_KEY` unless `api_key` is set there.
+Options go in the plugin entry, or in the environment. The key comes from `HUGINN_API_KEY` unless
+`api_key` is set there.
 
-How it works: the plugin replaces the `home_prompt` and `session_prompt` slots with OpenCode's own
+- 2.x, `cli.json`: `{"package": "…/opencode2", "options": {"mic": "RDPSource", "save": "on", "key": "alt+h"}}`
+- 1.x, `tui.json`: `["…/opencode/huginn-voice.js", {"mic": "RDPSource", "save": "on", "key": "alt+h"}]`
+
+How it works in 2.x: the V2 API has no prompt component for plugins. When dictation starts, the
+plugin takes the focused prompt textarea (`renderer.currentFocusedRenderable`) and reads and writes
+its text. It sends with the host command `prompt.submit`. While listening, a keymap layer with a
+high priority owns Enter. The band is a claim on the `prompt.footer.status` slot. OpenCode 2.x
+compiles the `.tsx` itself, so there is no build step.
+
+How it works in 1.x: the plugin replaces the `home_prompt` and `session_prompt` slots with OpenCode's own
 `Prompt` and keeps its ref, so it can read and write the text; while listening it binds Enter in a
 layer of its own, because the prompt's `onSubmit` fires only after the box is already cleared.
-OpenCode compiles JSX only for plugin files outside `node_modules`, so the package ships
+OpenCode 1.x compiles JSX only for plugin files outside `node_modules`, so the package ships
 `opencode/huginn-voice.js`, built by `scripts/build-opencode.sh`. Rebuild and commit it after every
 change to the `.tsx`.
 

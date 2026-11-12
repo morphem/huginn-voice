@@ -1,11 +1,15 @@
 {
   "name": "huginn-voice",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Dictate into the Claude Code or OpenCode prompt box, transcribed by your own Huginn server.",
   "private": true,
   "type": "module",
   "exports": {
     "./tui": "./opencode/huginn-voice.js"
   },
-  "files": ["opencode", "bin"]
+  "files": [
+    "opencode",
+    "opencode2",
+    "bin"
+  ]
 }
