@@ -29,6 +29,15 @@ else
 fi
 
 mkdir -p "$dest/dist" "$(dirname "$cfg")"
+
+# The Windows server stops watching plugin files when it is idle, and then a new bundle is not seen.
+# A request to it loads the plugins again and starts the watchers, so the copy below reloads the plugin.
+cli=$(ls -d "$home"/AppData/Roaming/ai.opencode.desktop/cli/*/opencode-cli.exe 2>/dev/null | sort -V | tail -1)
+if [ -n "$cli" ]; then
+  (cd /mnt/c && timeout 60 "$cli" api get /api/plugin >/dev/null 2>&1) || true
+  sleep 2
+fi
+
 cp package.json "$dest/package.json"
 cp dist/gui-experimental.cjs "$dest/dist/gui-experimental.cjs"
 
