@@ -110,6 +110,8 @@ compiles the `.tsx` itself, so there is no build step.
 
 ### OpenCode Desktop (Windows, with WSL)
 
+Design notes, findings, and the backlog: [`docs/opencode-desktop.md`](docs/opencode-desktop.md).
+
 `desktop/` is a GUI plugin for OpenCode Desktop on Windows: a **Huginn** pill above the prompt box.
 
 ```
